@@ -36,7 +36,7 @@ os.environ["OPENAI_API_KEY"] = openai_api_key
 # tools
 
 tools=[
-    SearchToolkit().search_google,
+    # SearchToolkit().search_google,
     PubMedToolkit().get_tools,
     ArxivToolkit().get_tools,
     *FileWriteToolkit().get_tools(),
@@ -1013,6 +1013,166 @@ except Exception as e:
     
     return code
 
+# 分析CSV文件中指定行的单条信息
+def analyze_single_record(file_path: str, row_index: int) -> str:
+    """
+    分析CSV文件中指定行的单条信息并生成用户信息文本
+    
+    参数:
+        file_path (str): CSV文件路径
+        row_index (int): 要分析的行索引（0是第一行数据）
+        
+    返回:
+        str: 生成的用户信息文本
+    """
+    code = f"""
+import pandas as pd
+import os
+import json
+
+try:
+    # 检查文件是否存在
+    if not os.path.exists('{file_path}'):
+        print("错误: 文件不存在")
+        exit(1)
+        
+    # 尝试加载CSV文件
+    df = pd.read_csv('{file_path}')
+    
+    # 检查行索引是否有效
+    if {row_index} < 0 or {row_index} >= len(df):
+        print(f"错误: 行索引 {row_index} 超出范围 (0-{{len(df)-1}})")
+        exit(1)
+    
+    # 获取指定行数据
+    row_data = df.iloc[{row_index}]
+    
+    print(f"正在分析第 {row_index+1} 行数据...")
+    
+    # 创建用户信息字典
+    user_info = {{"row_index": {row_index}}}
+    
+    # 添加所有列到用户信息
+    for col in df.columns:
+        value = row_data[col]
+        # 处理不同类型的值
+        if pd.isna(value):
+            user_info[col] = "未提供"
+        elif isinstance(value, (int, float)):
+            user_info[col] = float(value) if '.' in str(value) else int(value)
+        else:
+            user_info[col] = str(value)
+    
+    # 生成信息文本
+    info_text = "个人基本信息（从CSV第 {row_index+1} 行数据提取）：\\n"
+    
+    # 添加基本信息
+    basic_info_keys = ['user_id', 'age', 'gender', 'height', 'height_cm', 'weight', 'bmi']
+    for key in [k for k in basic_info_keys if k in user_info]:
+        info_text += f"- {{key}}: {{user_info[key]}}\\n"
+    
+    # 添加体重相关信息
+    weight_keys = [k for k in user_info.keys() if 'weight' in k.lower() and k not in basic_info_keys]
+    if weight_keys:
+        info_text += "\\n体重相关信息：\\n"
+        for key in weight_keys:
+            info_text += f"- {{key}}: {{user_info[key]}}\\n"
+    
+    # 添加健康状况信息
+    health_keys = ['bmi', 'target_weight', 'target_weight_kg']
+    health_keys.extend([k for k in user_info.keys() if any(h in k.lower() for h in ['health', 'disease', 'condition', 'pressure', 'blood'])])
+    if any(k in user_info for k in health_keys):
+        info_text += "\\n健康状况：\\n"
+        for key in [k for k in health_keys if k in user_info and k != 'bmi']:  # bmi已在基本信息中
+            info_text += f"- {{key}}: {{user_info[key]}}\\n"
+    
+    # 添加生活习惯信息
+    habit_keys = []
+    # 饮食相关
+    habit_keys.extend([k for k in user_info.keys() if any(h in k.lower() for h in ['calories', 'food', 'meal', 'diet', 'protein', 'carbs', 'fat', 'breakfast', 'lunch', 'dinner', 'snack', 'water', 'alcohol'])])
+    # 运动相关
+    habit_keys.extend([k for k in user_info.keys() if any(h in k.lower() for h in ['exercise', 'activity', 'steps', 'workout'])])
+    # 睡眠相关
+    habit_keys.extend([k for k in user_info.keys() if any(h in k.lower() for h in ['sleep'])])
+    # 心理相关
+    habit_keys.extend([k for k in user_info.keys() if any(h in k.lower() for h in ['stress', 'mood', 'mental'])])
+    
+    if habit_keys:
+        # 饮食习惯
+        diet_keys = [k for k in habit_keys if any(h in k.lower() for h in ['calories', 'food', 'meal', 'diet', 'protein', 'carbs', 'fat', 'breakfast', 'lunch', 'dinner', 'snack', 'water', 'alcohol'])]
+        if diet_keys:
+            info_text += "\\n饮食习惯：\\n"
+            for key in diet_keys:
+                info_text += f"- {{key}}: {{user_info[key]}}\\n"
+        
+        # 运动习惯
+        exercise_keys = [k for k in habit_keys if any(h in k.lower() for h in ['exercise', 'activity', 'steps', 'workout'])]
+        if exercise_keys:
+            info_text += "\\n运动习惯：\\n"
+            for key in exercise_keys:
+                info_text += f"- {{key}}: {{user_info[key]}}\\n"
+        
+        # 睡眠习惯
+        sleep_keys = [k for k in habit_keys if any(h in k.lower() for h in ['sleep'])]
+        if sleep_keys:
+            info_text += "\\n睡眠习惯：\\n"
+            for key in sleep_keys:
+                info_text += f"- {{key}}: {{user_info[key]}}\\n"
+        
+        # 心理状态
+        mental_keys = [k for k in habit_keys if any(h in k.lower() for h in ['stress', 'mood', 'mental'])]
+        if mental_keys:
+            info_text += "\\n心理状态：\\n"
+            for key in mental_keys:
+                info_text += f"- {{key}}: {{user_info[key]}}\\n"
+    
+    # 添加其他信息
+    other_keys = [k for k in user_info.keys() if k not in basic_info_keys and k not in weight_keys and k not in health_keys and k not in habit_keys and k != 'row_index']
+    if other_keys:
+        info_text += "\\n其他信息：\\n"
+        for key in other_keys:
+            if key != 'date' and not key.startswith('Unnamed'):  # 排除日期列和无名列
+                info_text += f"- {{key}}: {{user_info[key]}}\\n"
+    
+    # 保存为文件
+    user_info_file = f'user_info_row{{row_index+1}}.txt'
+    with open(user_info_file, 'w', encoding='utf-8') as f:
+        f.write(info_text)
+    
+    print(f"\\n用户信息已提取并保存到: {{os.path.abspath(user_info_file)}}")
+    print("\\n提取的用户信息:")
+    print(info_text)
+    
+    # 返回信息文本和文件路径
+    return {{"info_text": info_text, "file_path": os.path.abspath(user_info_file)}}
+    
+except Exception as e:
+    print(f"错误: {{str(e)}}")
+    exit(1)
+"""
+    
+    return code
+
+# 进行单行分析并返回生成的用户信息
+def process_single_row(csv_file: str, row_index: int) -> str:
+    """
+    处理CSV文件中的单行数据
+    
+    参数:
+        csv_file (str): CSV文件路径
+        row_index (int): 行索引
+        
+    返回:
+        str: 生成的用户信息
+    """
+    from camel.toolkits import CodeExecutionToolkit
+    
+    print(f"正在从CSV文件 '{csv_file}' 中提取第 {row_index+1} 行数据...")
+    code_toolkit = CodeExecutionToolkit(verbose=True)
+    result = code_toolkit.execute_code(analyze_single_record(csv_file, row_index))
+    
+    return result
+
 # 创建命令行入口点
 if __name__ == "__main__":
     import argparse
@@ -1021,6 +1181,7 @@ if __name__ == "__main__":
     parser.add_argument('--user_info', type=str, help='用户信息文件路径', default=None)
     parser.add_argument('--csv_file', type=str, help='用户提供的CSV数据文件路径', default=None)
     parser.add_argument('--generate_sample_csv', action='store_true', help='是否只生成示例CSV数据而不执行完整分析')
+    parser.add_argument('--row_index', type=int, help='要分析的CSV文件中的行索引（从0开始）', default=None)
     args = parser.parse_args()
     
     # 只生成示例CSV
@@ -1031,6 +1192,22 @@ if __name__ == "__main__":
         code_toolkit = CodeExecutionToolkit(verbose=True)
         result = code_toolkit.execute_code(create_example_weight_csv())
         print("示例CSV数据生成完成。")
+        exit(0)
+    
+    # 检查是否需要分析单行数据
+    if args.csv_file and args.row_index is not None:
+        if not os.path.exists(args.csv_file):
+            print(f"错误：提供的CSV文件 '{args.csv_file}' 不存在")
+            exit(1)
+        
+        # 分析单行数据
+        user_info_result = process_single_row(args.csv_file, args.row_index)
+        
+        # 使用生成的用户信息进行分析
+        print("\n正在使用提取的用户信息进行体重管理分析...")
+        result = process_weight_management_case(user_info_result, args.csv_file)
+        print("\n===== 分析结果 =====\n")
+        print(result)
         exit(0)
     
     # 验证用户提供的CSV文件
